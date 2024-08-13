@@ -65,6 +65,7 @@ func listener(r *gin.Engine, db *gorm.DB) {
 		if errorDB(result, c) {
 			return
 		}
+		c.Redirect(http.StatusMovedPermanently, "/index")
 	})
 	r.POST("/blog/update", func(c *gin.Context) {
 		id, _ := strconv.Atoi(c.PostForm("id"))
@@ -81,6 +82,7 @@ func listener(r *gin.Engine, db *gorm.DB) {
 		if errorDB(result, c) {
 			return
 		}
+		c.Redirect(http.StatusMovedPermanently, "/index")
 	})
 	r.POST("/blog/create", func(c *gin.Context) {
 		title := c.PostForm("title")
@@ -90,6 +92,7 @@ func listener(r *gin.Engine, db *gorm.DB) {
 		if errorDB(result, c) {
 			return
 		}
+		c.Redirect(http.StatusMovedPermanently, "/index")
 	})
 	r.GET("/blog/get", func(c *gin.Context) {
 		var blog Blog
@@ -110,6 +113,29 @@ func listener(r *gin.Engine, db *gorm.DB) {
 		fmt.Println(json.NewEncoder(os.Stdout).Encode(blogs))
 		c.JSON(http.StatusOK, blogs)
 	})
+	r.GET("/index", func(c *gin.Context) {
+		var blogs []Blog
+		result := db.Find(&blogs)
+		if errorDB(result, c) {
+			return
+		}
+		c.HTML(http.StatusOK, "index.html", gin.H{
+			"title": "HOME",
+			"blogs": blogs,
+		})
+	})
+	r.GET("/edit", func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Query("id"))
+		if err != nil {
+			log.Fatalln(err)
+		}
+		var blog Blog
+		db.Where("id = ?", id).Take(&blog)
+		c.HTML(http.StatusOK, "edit.html", gin.H{
+			"title": "Edit",
+			"blog":  blog,
+		})
+	})
 }
 
 func main() {
@@ -122,7 +148,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
-
+	// client/*.htmlのファイルを全て読み込む
+	r.LoadHTMLGlob("client/*")
 	listener(r, db)
 
 	fmt.Println("Database connection and migration successful")

@@ -1,0 +1,12 @@
+<html>
+  <body>
+    <h1>
+      {{ .title }}
+    </h1>
+    <form action="/blog/update" method="POST">
+      <input type="hidden" name="id" value="{{.blog.ID}}">
+      <textarea name="content" rows="4">{{.blog.content}}</textarea>
+      <button type="submit">更新</button>
+    </form>
+  </body>
+</html>
