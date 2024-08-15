@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"gin-todo-app/src/domain/models"
 	"log"
 	"net/http"
 	"os"
@@ -51,7 +52,7 @@ func connectDB() (*gorm.DB, error) {
 
 func errorDB(db *gorm.DB, c *gin.Context) bool {
 	if db.Error != nil {
-		log.Printf("Error todos: %v", db.Error)
+		log.Printf("Error blog: %v", db.Error)
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return true
 	}
@@ -144,12 +145,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	err = db.AutoMigrate(&Blog{})
+	err = db.AutoMigrate(&models.Blog{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
-	// client/*.htmlのファイルを全て読み込む
-	r.LoadHTMLGlob("client/*")
+	// src/infra/http/public/*.htmlのファイルを全て読み込む
+	r.LoadHTMLGlob("src/infra/http/public/*")
 	listener(r, db)
 
 	fmt.Println("Database connection and migration successful")

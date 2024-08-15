@@ -1,0 +1,27 @@
+<html>
+	<body>
+		<h1>
+			{{ .title }}
+		</h1>
+		<form action="/blog/create" method="POST">
+			<div>
+				<input type="text" name="title" id="title">
+			</div>
+			<div>
+				<textarea name="content" id="content" rows="4"></textarea>
+			</div>
+			<button type="submit">作成</button>
+		</form>
+
+		<hr>
+
+		{{ range .blogs }}
+			<div>
+				<p>{{ .Title }}
+					<a href="/edit?id={{ .ID }}">[編集]</a>
+					<a href="/blog/delete?id={{ .ID }}">[削除]</a>
+				</p>
+			</div>
+		{{ end }}
+	</body>
+</html>
