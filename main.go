@@ -2,122 +2,41 @@ package main
 
 import (
 	"fmt"
-	"gin-todo-app/src/domain/models"
+	models "gin-todo-app/src/domain/models"
+	database "gin-todo-app/src/infra/database"
+	repository "gin-todo-app/src/infra/database/repositories"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 
-	"encoding/json"
-
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
 )
 
-type Blog struct {
-	*gorm.Model
-	Title   string `json:"title"`
-	Content string `json:"content"`
-}
-
-type DBConfig struct {
-	User     string
-	Password string
-	Host     string
-	Port     int
-	Table    string
-}
-
-func getDBConfig() DBConfig {
-	port, _ := strconv.Atoi(os.Getenv("DB_PORT"))
-	return DBConfig{
-		User:     os.Getenv("DB_USER"),
-		Password: os.Getenv("DB_PASSWORD"),
-		Host:     os.Getenv("DB_HOST"),
-		Port:     port,
-		Table:    os.Getenv("DB_NAME"),
-	}
-}
-
-func connectDB() (*gorm.DB, error) {
-	config := getDBConfig()
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True", config.User, config.Password, config.Host, config.Port, config.Table)
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+func main() {
+	engine := gin.Default()
+	db, err := database.ConnectionDB()
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	return db, err
-}
+	// リポジトリの初期化
+	blogRepo := repository.NewBlogRepository(db)
 
-func errorDB(db *gorm.DB, c *gin.Context) bool {
-	if db.Error != nil {
-		log.Printf("Error blog: %v", db.Error)
-		c.AbortWithStatus(http.StatusInternalServerError)
-		return true
+	//　マイグレーション
+	err = db.AutoMigrate(&models.Blog{})
+	if err != nil {
+		log.Fatalf("Failed to migrate database: %v", err)
 	}
-	return false
-}
 
-func listener(r *gin.Engine, db *gorm.DB) {
-	r.GET("/blog/delete", func(c *gin.Context) {
-		id, _ := c.GetQuery("id")
-		result := db.Delete(&Blog{}, id)
-		if errorDB(result, c) {
-			return
-		}
-		c.Redirect(http.StatusMovedPermanently, "/index")
-	})
-	r.POST("/blog/update", func(c *gin.Context) {
-		id, _ := strconv.Atoi(c.PostForm("id"))
-		title := c.PostForm("title")
-		content := c.PostForm("content")
-		var blog Blog
-		result := db.Where("id = ?", id).Take(&blog)
-		if errorDB(result, c) {
-			return
-		}
-		blog.Title = title
-		blog.Content = content
-		result = db.Save(&blog)
-		if errorDB(result, c) {
-			return
-		}
-		c.Redirect(http.StatusMovedPermanently, "/index")
-	})
-	r.POST("/blog/create", func(c *gin.Context) {
-		title := c.PostForm("title")
-		content := c.PostForm("content")
-		fmt.Println(c.Request.PostForm, title, content)
-		result := db.Create(&Blog{Title: title, Content: content})
-		if errorDB(result, c) {
-			return
-		}
-		c.Redirect(http.StatusMovedPermanently, "/index")
-	})
-	r.GET("/blog/get", func(c *gin.Context) {
-		var blog Blog
-		id, _ := c.GetQuery("id")
-		result := db.First(&blog, id)
-		if errorDB(result, c) {
-			return
-		}
-		fmt.Println(json.NewEncoder(os.Stdout).Encode(blog))
-		c.JSON(http.StatusOK, blog)
-	})
-	r.GET("/blog/list", func(c *gin.Context) {
-		var blogs []Blog
-		result := db.Find(&blogs)
-		if errorDB(result, c) {
-			return
-		}
-		fmt.Println(json.NewEncoder(os.Stdout).Encode(blogs))
-		c.JSON(http.StatusOK, blogs)
-	})
-	r.GET("/index", func(c *gin.Context) {
-		var blogs []Blog
-		result := db.Find(&blogs)
-		if errorDB(result, c) {
+	engine.Static("/static", "./Static")
+
+	// htmlのファイルを全て読み込む
+	engine.LoadHTMLGlob("src/infra/http/public/*")
+
+	engine.GET("/index", func(c *gin.Context) {
+		var blogs []*models.Blog
+		blogs, err := blogRepo.List(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not get blogs"})
 			return
 		}
 		c.HTML(http.StatusOK, "index.html", gin.H{
@@ -125,34 +44,52 @@ func listener(r *gin.Engine, db *gorm.DB) {
 			"blogs": blogs,
 		})
 	})
-	r.GET("/edit", func(c *gin.Context) {
+
+	engine.GET("/edit", func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Query("id"))
 		if err != nil {
-			log.Fatalln(err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not get blog"})
+			return
 		}
-		var blog Blog
-		db.Where("id = ?", id).Take(&blog)
+		var blog *models.Blog
+		blog, _ = blogRepo.GetByID(c.Request.Context(), uint(id))
 		c.HTML(http.StatusOK, "edit.html", gin.H{
 			"title": "Edit",
 			"blog":  blog,
 		})
 	})
-}
 
-func main() {
-	r := gin.Default()
-	db, err := connectDB()
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-	}
-	err = db.AutoMigrate(&models.Blog{})
-	if err != nil {
-		log.Fatalf("Failed to migrate database: %v", err)
-	}
-	// src/infra/http/public/*.htmlのファイルを全て読み込む
-	r.LoadHTMLGlob("src/infra/http/public/*")
-	listener(r, db)
+	engine.GET("/blog/destroy", func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Query("id"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not get blog"})
+			return
+		}
+		blogRepo.Delete(c.Request.Context(), uint(id))
+		c.Redirect(http.StatusMovedPermanently, "/index")
+	})
+
+	engine.POST("/blog/update", func(c *gin.Context) {
+		id, err := strconv.Atoi(c.PostForm("id"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not get blog"})
+			return
+		}
+		var blog *models.Blog
+		blog, _ = blogRepo.GetByID(c.Request.Context(), uint(id))
+		blog.Title = c.PostForm("title")
+		blog.Content = c.PostForm("content")
+		blogRepo.Update(c.Request.Context(), blog)
+		c.Redirect(http.StatusMovedPermanently, "/index")
+	})
+
+	engine.POST("/blog/create", func(c *gin.Context) {
+		title := c.PostForm("title")
+		content := c.PostForm("content")
+		blogRepo.Create(c, &models.Blog{Title: title, Content: content})
+		c.Redirect(http.StatusMovedPermanently, "/index")
+	})
 
 	fmt.Println("Database connection and migration successful")
-	r.Run(":8080")
+	engine.Run(":8080")
 }
